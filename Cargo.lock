@@ -714,12 +714,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kdbush"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c245b7a0802cdbbcac39a92da0210730b841aec635d4a65e3626c6b0f53d64b3"
-
-[[package]]
 name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1065,7 +1059,6 @@ dependencies = [
  "criterion",
  "glam",
  "glium",
- "kdbush",
  "rand",
  "rayon",
 ]
