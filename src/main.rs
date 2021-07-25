@@ -1,7 +1,7 @@
 extern crate glium;
 use glium::{glutin, implement_vertex, uniform, Surface};
 use glutin::event::{ElementState, Event, KeyboardInput, StartCause, VirtualKeyCode, WindowEvent};
-use mueller_sph_rs;
+use pcisph_rs;
 
 #[derive(Copy, Clone)]
 struct Vertex {
@@ -9,21 +9,21 @@ struct Vertex {
 }
 implement_vertex!(Vertex, position);
 
-const DAM_PARTICLES: usize = 3000;
+const DAM_PARTICLES: usize = 5000;
 const BLOCK_PARTICLES: usize = 250;
 const POINT_SIZE: f32 = 15.0;
 
 fn main() {
-    let mut particles: Vec<mueller_sph_rs::Particle> = Vec::new();
-    mueller_sph_rs::init_dam_break(&mut particles, DAM_PARTICLES);
+    let mut simulation = pcisph_rs::State::new();
+    simulation.init_dam_break(DAM_PARTICLES);
 
     let event_loop = glutin::event_loop::EventLoop::new();
     let size: glutin::dpi::LogicalSize<u32> =
-        (mueller_sph_rs::WINDOW_WIDTH, mueller_sph_rs::WINDOW_HEIGHT).into();
+        (pcisph_rs::WINDOW_WIDTH, pcisph_rs::WINDOW_HEIGHT).into();
     let wb = glutin::window::WindowBuilder::new()
         .with_inner_size(size)
         .with_resizable(false)
-        .with_title("Muller SPH");
+        .with_title("PCISPH");
     let cb = glutin::ContextBuilder::new();
     let display = glium::Display::new(wb, cb, &event_loop).unwrap();
 
@@ -47,9 +47,9 @@ fn main() {
             .unwrap();
     let ortho_matrix: cgmath::Matrix4<f32> = cgmath::ortho(
         0.0,
-        mueller_sph_rs::VIEW_WIDTH,
+        pcisph_rs::VIEW_WIDTH,
         0.0,
-        mueller_sph_rs::VIEW_HEIGHT,
+        pcisph_rs::VIEW_HEIGHT,
         0.0,
         1.0,
     );
@@ -75,13 +75,13 @@ fn main() {
                     ..
                 } => match (virtual_code, state) {
                     (VirtualKeyCode::R, ElementState::Pressed) => {
-                        particles.clear();
+                        simulation.particles.clear();
                         println!("Cleared simulation");
-                        mueller_sph_rs::init_dam_break(&mut particles, DAM_PARTICLES);
+                        simulation.init_dam_break(DAM_PARTICLES);
                     }
-                    (VirtualKeyCode::Space, ElementState::Pressed) => {
+                    /*(VirtualKeyCode::Space, ElementState::Pressed) => {
                         mueller_sph_rs::init_block(&mut particles, BLOCK_PARTICLES);
-                    }
+                    }*/
                     (VirtualKeyCode::Escape, ElementState::Pressed) => {
                         *control_flow = glutin::event_loop::ControlFlow::Exit;
                         return;
@@ -98,10 +98,11 @@ fn main() {
             _ => return,
         }
 
-        mueller_sph_rs::update(&mut particles);
+        simulation.update();
 
         // draw
-        let data: Vec<Vertex> = particles
+        let data: Vec<Vertex> = simulation
+            .particles
             .iter()
             .map(|p| Vertex {
                 position: p.x.to_array(),

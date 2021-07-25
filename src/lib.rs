@@ -1,160 +1,216 @@
-#[macro_use]
-extern crate lazy_static;
 extern crate glam;
-use glam::Vec2;
-use rand::random;
+use glam::{vec2, vec3, Vec2, Vec3};
+use kdbush::KDBush;
 use rayon::prelude::*;
 use std::f32::consts::PI;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct Particle {
     pub x: Vec2,
+    pub xlast: Vec2,
     pub v: Vec2,
-    pub f: Vec2,
-    pub rho: f32,
+    pub m: f32,
     pub p: f32,
+    pub pv: f32,
+    pub d: f32,
+    pub dv: f32,
 }
 
 impl Particle {
-    pub fn new(x: f32, y: f32) -> Self {
+    pub fn new() -> Self {
+        Self {
+            x: Vec2::ZERO,
+            v: Vec2::ZERO,
+            m: 1.0,
+            ..Default::default()
+        }
+    }
+
+    pub fn new_with_pos(x: f32, y: f32) -> Self {
         Self {
             x: Vec2::new(x, y),
             v: Vec2::ZERO,
-            f: Vec2::ZERO,
-            rho: 0.0,
-            p: 0.0,
+            m: 1.0,
+            ..Default::default()
         }
     }
 }
 
-const REST_DENS: f32 = 1000.0;
-const GAS_CONST: f32 = 3000.0;
-const H: f32 = 16.0;
-const HSQ: f32 = H * H;
-const MASS: f32 = 65.0;
-const VISC: f32 = 250.0;
-const DT: f32 = 0.0008;
-const EPS: f32 = H;
-const BOUND_DAMPING: f32 = -0.5;
-pub const WINDOW_WIDTH: u32 = 800 * 2;
-pub const WINDOW_HEIGHT: u32 = 600 * 2;
-pub const VIEW_WIDTH: f32 = 1.5 * WINDOW_WIDTH as f32;
-pub const VIEW_HEIGHT: f32 = 1.5 * WINDOW_HEIGHT as f32;
+const SOLVER_STEPS: usize = 10;
+const REST_DENS: f32 = 45.0;
+const STIFFNESS: f32 = 0.08;
+const STIFF_APPROX: f32 = 0.1; // TODO: better naming
+const SURFACE_TENSION: f32 = 0.0001;
+const LINEAR_VISC: f32 = 0.25;
+const QUAD_VISC: f32 = 0.5;
+const PARTICLE_RADIUS: f32 = 0.03;
+const H: f32 = 6.0 * PARTICLE_RADIUS;
+const H2: f32 = H * H;
+const DT: f32 = 0.000003; //(1.0 / 60.0) / SOLVER_STEPS as f32;
+const DT2: f32 = DT * DT;
+const KERN: f32 = 20.0 / (2.0 * PI * H * H);
+const KERN_NORM: f32 = 30.0 / (2.0 * PI * H * H);
+const EPS: f32 = 1e-6;
+const EPS2: f32 = EPS * EPS;
+pub const G: Vec2 = glam::const_vec2!([0.0, -9.8]);
+pub const WINDOW_WIDTH: u32 = 1280;
+pub const WINDOW_HEIGHT: u32 = 1024;
+pub const VIEW_WIDTH: f32 = 20.0;
+pub const VIEW_HEIGHT: f32 = WINDOW_HEIGHT as f32 * VIEW_WIDTH / WINDOW_WIDTH as f32;
 
-lazy_static! {
-    static ref G: Vec2 = Vec2::new(0.0, 12000.0 * -9.8);
-    static ref POLY6: f32 = 315.0 / (65.0 * PI * f32::powf(H, 9.0));
-    static ref SPIKY_GRAD: f32 = -45.0 / (PI * f32::powf(H, 6.0));
-    static ref VISC_LAP: f32 = 45.0 / (PI * f32::powf(H, 6.0));
+pub struct State {
+    pub particles: Vec<Particle>,
+    boundaries: Vec<Vec3>,
+    spatial_index: KDBush,
 }
 
-pub fn init_dam_break(particles: &mut Vec<Particle>, dam_max_particles: usize) {
-    let mut y = EPS;
-    'outer: while y < (VIEW_HEIGHT - EPS * 2.0) {
-        y += H;
-        let mut x = VIEW_WIDTH / 10.0;
-        while x <= VIEW_WIDTH / 2.5 {
-            x += H;
-            if particles.len() < dam_max_particles {
-                let jitter = random::<f32>();
-                particles.push(Particle::new(x + jitter, y));
-            } else {
-                break 'outer;
-            }
+impl State {
+    pub fn new() -> Self {
+        Self {
+            particles: Vec::new(),
+            boundaries: Vec::new(),
+            spatial_index: KDBush::new(0, kdbush::DEFAULT_NODE_SIZE),
         }
     }
-    println!("Initialized dam break with {} particles", particles.len());
-}
 
-pub fn init_block(particles: &mut Vec<Particle>, max_block_particles: usize) {
-    let mut placed = 0;
-    let mut y = VIEW_HEIGHT / 1.5 - VIEW_HEIGHT / 10.0;
-    'outer: while y < VIEW_HEIGHT / 1.5 + VIEW_HEIGHT / 10.0 {
-        y += H * 0.95;
-        let mut x = VIEW_WIDTH / 2.0 - VIEW_HEIGHT / 10.0;
-        while x < VIEW_WIDTH / 2.0 + VIEW_HEIGHT / 10.0 {
-            x += H * 0.95;
-            if placed < max_block_particles {
-                particles.push(Particle::new(x, y));
-                placed += 1;
-            } else {
-                break 'outer;
+    pub fn init_dam_break(&mut self, dam_max_particles: usize) {
+        self.boundaries.clear();
+        self.boundaries.push(vec3(1.0, 0.0, 0.0)); // left
+        self.boundaries.push(vec3(0.0, 1.0, 0.0)); // bottom
+        self.boundaries.push(vec3(-1.0, 0.0, -VIEW_WIDTH)); // right
+        self.boundaries.push(vec3(0.0, -1.0, -VIEW_HEIGHT)); // top
+
+        let mut start = vec2(0.25 * VIEW_WIDTH, 0.95 * VIEW_HEIGHT);
+        let x0 = start.x;
+        let num = f32::sqrt(dam_max_particles as f32) as usize;
+        for i in 0..num {
+            for j in 0..num {
+                self.particles
+                    .push(Particle::new_with_pos(start.x, start.y));
+                start.x += 2.0 * PARTICLE_RADIUS + PARTICLE_RADIUS;
             }
+            start.x = x0;
+            start.y -= 2.0 * PARTICLE_RADIUS + PARTICLE_RADIUS;
+        }
+        println!(
+            "Initialized dam break with {} particles",
+            self.particles.len()
+        );
+    }
+
+    fn integrate(&mut self) {
+        self.particles.par_iter_mut().for_each(|p| {
+            p.v += G * DT;
+            p.xlast = p.x;
+            p.x += DT * p.v;
+        });
+    }
+
+    fn grid_insert(&mut self) {
+        /*
+        self.particles
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, p)| {
+                let xind = (p.x.x / CELL_SIZE).floor() as usize;
+                let yind = (p.x.y / CELL_SIZE).floor() as usize;
+                let xind = usize::max(1, usize::min(GRID_WIDTH - 2, xind));
+                let yind = usize::max(1, usize::min(GRID_HEIGHT - 2, yind));
+                //self.grid[xind + yind * GRID_WIDTH].append(p);
+                //self.grid_indices[i] = Vec2::new(xind as f32, yind as f32);
+            });
+             */
+    }
+
+    fn compute_forces(&mut self) {
+        let particles_initial = self.particles.clone();
+        self.particles
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, pi)| {
+                let mut dens = 0.0;
+                let mut dens_proj = 0.0;
+                for (j, pj) in particles_initial.iter().enumerate() {
+                    if i == j {
+                        continue;
+                    }
+                    let dx = pj.x - pi.x;
+                    let r2 = dx.length_squared();
+                    if r2 < EPS2 || r2 > H2 {
+                        continue;
+                    }
+                    let r = f32::sqrt(r2);
+                    let a = 1.0 - r / H;
+                    dens += pj.m * a * a * a * KERN;
+                    dens_proj += pj.m * a * a * a * a * KERN_NORM;
+                }
+                pi.d = dens;
+                pi.dv = dens_proj;
+                pi.p = STIFFNESS * (dens - pi.m * REST_DENS);
+                pi.pv = STIFF_APPROX * dens_proj;
+            })
+    }
+
+    fn project_correct(&mut self) {
+        let particles_initial = self.particles.clone();
+        let bounds = self.boundaries.clone();
+        self.particles
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, pi)| {
+                // project
+                let mut xproj = pi.x.clone();
+                for (j, pj) in particles_initial.iter().enumerate() {
+                    if i == j {
+                        continue;
+                    }
+                    let dx = pj.x - pi.x;
+                    let r2 = dx.length_squared();
+                    if r2 < EPS2 || r2 > H2 {
+                        continue;
+                    }
+                    let r = f32::sqrt(r2);
+                    let a = 1.0 - r / H;
+                    let d = DT2
+                        * ((pi.pv + pj.pv) * a * a * a * KERN_NORM + (pi.p + pj.p) * a * a * KERN)
+                        / 2.0;
+
+                    // relaxation
+                    xproj -= d * dx / (r * pi.m);
+
+                    // surface tension
+                    xproj += (SURFACE_TENSION / pi.m) * pj.m * a * a * KERN * dx;
+
+                    // linear and quadratic visc
+                    let dv = pi.v - pj.v;
+                    let mut u = dv.dot(dx);
+                    if u > 0.0 {
+                        u /= r;
+                        let I = 0.5 * DT * a * (LINEAR_VISC * u + QUAD_VISC * u * u);
+                        xproj -= I * dx * DT;
+                    }
+                }
+
+                // correct
+                pi.x = xproj;
+                pi.v = (xproj - pi.xlast) / DT;
+
+                // boundary
+                for b in &bounds {
+                    let d = f32::max(pi.x.x * b.x + pi.x.x * b.x - b.z, 0.0);
+                    if d < PARTICLE_RADIUS {
+                        pi.v += (PARTICLE_RADIUS - d) * Vec2::new(b.x, b.y) / DT;
+                    }
+                }
+            })
+    }
+
+    pub fn update(&mut self) {
+        for _ in 0..SOLVER_STEPS {
+            self.integrate();
+            //self.grid_insert();
+            self.compute_forces();
+            self.project_correct();
         }
     }
-    println!(
-        "Initialized block of {} particles, new total {}",
-        placed,
-        particles.len()
-    );
-}
-
-pub fn integrate(particles: &mut Vec<Particle>) {
-    particles.par_iter_mut().for_each(|p| {
-        p.v += DT * p.f / p.rho;
-        p.x += DT * p.v;
-
-        // enforce boundary conditions
-        if p.x.x - EPS < 0.0 {
-            p.v.x *= BOUND_DAMPING;
-            p.x.x = EPS;
-        }
-        if p.x.x + EPS > VIEW_WIDTH {
-            p.v.x *= BOUND_DAMPING;
-            p.x.x = VIEW_WIDTH - EPS;
-        }
-        if p.x.y - EPS < 0.0 {
-            p.v.y *= BOUND_DAMPING;
-            p.x.y = EPS;
-        }
-        if p.x.y + EPS > VIEW_HEIGHT {
-            p.v.y *= BOUND_DAMPING;
-            p.x.y = VIEW_HEIGHT - EPS;
-        }
-    })
-}
-
-pub fn compute_density_pressure(particles: &mut Vec<Particle>) {
-    let particles_initial = particles.clone();
-    particles.par_iter_mut().for_each(|pi| {
-        let mut rho = 0.0f32;
-        for pj in particles_initial.iter() {
-            let rij = pj.x - pi.x;
-            let r2 = rij.length_squared();
-            if r2 < HSQ {
-                rho += MASS * *POLY6 * f32::powf(HSQ - r2, 3.0);
-            }
-        }
-        pi.rho = rho;
-        pi.p = GAS_CONST * (pi.rho - REST_DENS);
-    });
-}
-
-pub fn compute_forces(particles: &mut Vec<Particle>) {
-    let particles_initial = particles.clone();
-    particles.par_iter_mut().enumerate().for_each(|(i, pi)| {
-        let mut fpress = Vec2::ZERO;
-        let mut fvisc = Vec2::ZERO;
-        for (j, pj) in particles_initial.iter().enumerate() {
-            if i == j {
-                continue;
-            }
-            let rij = pj.x - pi.x;
-            let r = rij.length();
-            if r < H {
-                fpress += -rij.normalize() * MASS * (pi.p + pj.p) / (2.0 * pj.rho)
-                    * *SPIKY_GRAD
-                    * f32::powf(H - r, 2.0);
-                fvisc += VISC * MASS * (pj.v - pi.v) / pj.rho * *VISC_LAP * (H - r);
-            }
-        }
-        let fgrav = *G * pi.rho;
-        pi.f = fpress + fvisc + fgrav;
-    });
-}
-
-pub fn update(particles: &mut Vec<Particle>) {
-    compute_density_pressure(particles);
-    compute_forces(particles);
-    integrate(particles);
 }
