@@ -1,35 +1,42 @@
-extern crate glam;
+#![warn(
+    unreachable_pub,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_extern_crates,
+    rust_2018_idioms,
+    missing_debug_implementations
+)]
+
 use glam::{vec2, vec3, UVec2, Vec2, Vec3};
+use log::{info, warn};
 use rayon::prelude::*;
 use std::f32::consts::PI;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Particle {
-    pub x: Vec2,
-    pub xlast: Vec2,
-    pub v: Vec2,
-    pub m: f32,
-    pub p: f32,
-    pub pv: f32,
-    pub d: f32,
-    pub dv: f32,
-    pub grid_index: UVec2,
+    x: Vec2,
+    xlast: Vec2,
+    v: Vec2,
+    m: f32,
+    p: f32,
+    pv: f32,
+    d: f32,
+    dv: f32,
+    grid_index: UVec2,
 }
 
 impl Particle {
-    pub fn new() -> Self {
-        Self {
-            m: 1.0,
-            ..Default::default()
-        }
-    }
-
-    pub fn new_with_pos(x: f32, y: f32) -> Self {
+    pub fn new(x: f32, y: f32) -> Self {
         Self {
             x: Vec2::new(x, y),
             m: 1.0,
             ..Default::default()
         }
+    }
+
+    #[inline(always)]
+    pub fn position(&self) -> Vec2 {
+        self.x
     }
 }
 
@@ -60,6 +67,7 @@ const GRID_WIDTH: usize = (VIEW_WIDTH / CELL_SIZE) as usize;
 const GRID_HEIGHT: usize = (VIEW_HEIGHT / CELL_SIZE) as usize;
 const NUM_CELLS: usize = GRID_WIDTH * GRID_HEIGHT;
 
+#[derive(Debug)]
 pub struct State {
     pub particles: Vec<Particle>,
     boundaries: [Vec3; 4],
@@ -93,17 +101,20 @@ impl State {
         let num = f32::sqrt(dam_max_particles as f32) as usize;
         for _ in 0..num {
             for _ in 0..num {
-                self.particles
-                    .push(Particle::new_with_pos(start.x, start.y));
+                self.particles.push(Particle::new(start.x, start.y));
                 start.x += 2.0 * PARTICLE_RADIUS + PARTICLE_RADIUS;
             }
             start.x = x0;
             start.y -= 2.0 * PARTICLE_RADIUS + PARTICLE_RADIUS;
         }
-        println!(
+        info!(
             "Initialized dam break with {} particles",
             self.particles.len()
         );
+    }
+
+    pub fn init_block(&mut self, block_max_particles: usize) {
+        warn!("Unimplemented")
     }
 
     fn integrate(&mut self) {
