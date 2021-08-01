@@ -18,7 +18,7 @@ name = "benchmark"
 harness = false
 
 [profile.release]
-lto = "fat"
-panic = "abort"
-codegen-units = 1
 debug = true # uncomment for flamegraphs
+#lto = "fat"
+#panic = "abort"
+#codegen-units = 1

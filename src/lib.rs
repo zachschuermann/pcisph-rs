@@ -71,6 +71,7 @@ const CELL_SIZE: f32 = H; // set to smoothing radius
 const GRID_WIDTH: usize = (VIEW_WIDTH / CELL_SIZE) as usize;
 const GRID_HEIGHT: usize = (VIEW_HEIGHT / CELL_SIZE) as usize;
 const NUM_CELLS: usize = GRID_WIDTH * GRID_HEIGHT;
+const NUM_NEIGHBORS: usize = 64;
 
 #[derive(Debug)]
 pub struct State {
@@ -82,8 +83,14 @@ pub struct State {
 
 #[derive(Debug)]
 struct Neighbor {
-    particle: Particle,
-    r: f32
+    index: usize,
+    r: f32,
+}
+
+impl Neighbor {
+    fn new(index: usize, r: f32) -> Self {
+        Neighbor { index, r }
+    }
 }
 
 impl State {
@@ -116,6 +123,7 @@ impl State {
             for _ in 0..num {
                 self.particles
                     .push(Particle::new_with_pos(start.x, start.y));
+                self.neighborhoods.push(vec![]);
                 start.x += 2.0 * PARTICLE_RADIUS + PARTICLE_RADIUS;
             }
             start.x = x0;
@@ -150,96 +158,93 @@ impl State {
     fn compute_forces(&mut self) {
         let grid_initial = self.grid.clone(); // LVSTODO
         let particles_initial = self.particles.clone();
-        self.particles
-            .iter_mut()
-            .enumerate()
-            .for_each(|(i, pi)| {
-                let mut dens = 0.0;
-                let mut dens_proj = 0.0;
-                for gx in (pi.grid_index.x - 1)..(pi.grid_index.x + 1) {
-                    let mut gy = GRID_WIDTH;
-                    while gy < pi.grid_index.y as usize + GRID_WIDTH {
-                        for j in grid_initial[gx as usize + gy].iter() {
-                            if i == *j {
-                                continue;
-                            }
-                            let pj = &particles_initial[*j];
-                            let dx = pj.x - pi.x;
-                            let r2 = dx.length_squared();
-                            if r2 < EPS2 || r2 > H2 {
-                                continue;
-                            }
-                            let r = f32::sqrt(r2);
-                            let a = 1.0 - r / H;
-                            dens += pj.m * a * a * a * KERN;
-                            dens_proj += pj.m * a * a * a * a * KERN_NORM;
-						    // self.neighborhoods[i].particles[nh[i].numNeighbors] = &pj;
-						    // nh[i].r[nh[i].numNeighbors] = r;
-						    // ++nh[i].numNeighbors;
+        let particles = &mut self.particles;
+        let neighborhoods = &mut self.neighborhoods;
+
+        particles.iter_mut().enumerate().for_each(|(i, pi)| {
+            neighborhoods[i].clear();
+            let mut dens = 0.0;
+            let mut dens_proj = 0.0;
+            for gx in (pi.grid_index.x - 1)..=(pi.grid_index.x + 1) {
+                //let mut gy = GRID_WIDTH;
+                //while gy < pi.grid_index.y as usize + GRID_WIDTH {
+                let y_range =
+                    (pi.grid_index.y - GRID_WIDTH as u32)..=(pi.grid_index.y + GRID_WIDTH as u32);
+                for gy in y_range.step_by(GRID_WIDTH) {
+                    for j in &grid_initial[(gx + gy) as usize] {
+                        let pj = particles_initial[*j];
+                        let dx = pj.x - pi.x;
+                        let r2 = dx.length_squared();
+                        if r2 < EPS2 || r2 > H2 {
+                            continue;
                         }
-                        gy += GRID_WIDTH;
+                        let r = f32::sqrt(r2);
+                        let a = 1.0 - r / H;
+                        dens += pj.m * a * a * a * KERN;
+                        dens_proj += pj.m * a * a * a * a * KERN_NORM;
+                        if neighborhoods[i].len() < NUM_NEIGHBORS {
+                            let neighbor = Neighbor::new(*j, r);
+                            neighborhoods[i].push(neighbor);
+                        }
                     }
                 }
-                pi.d = dens;
-                pi.dv = dens_proj;
-                pi.p = STIFFNESS * (dens - pi.m * REST_DENS);
-                pi.pv = STIFF_APPROX * dens_proj;
-            })
+            }
+            pi.d = dens;
+            pi.dv = dens_proj;
+            pi.p = STIFFNESS * (dens - pi.m * REST_DENS);
+            pi.pv = STIFF_APPROX * dens_proj;
+        })
     }
 
     fn project_correct(&mut self) {
         let particles_initial = self.particles.clone();
-        let bounds = self.boundaries.clone();
-        self.particles
-            .iter_mut()
-            .enumerate()
-            .for_each(|(i, pi)| {
-                // project
-                let mut xproj = pi.x.clone();
-                // this shuold be 'for each neighbor'
-                for (j, pj) in particles_initial.iter().enumerate() {
-                    if i == j {
-                        continue;
-                    }
-                    let dx = pj.x - pi.x;
-                    let r2 = dx.length_squared();
-                    if r2 < EPS2 || r2 > H2 {
-                        continue;
-                    }
-                    let r = f32::sqrt(r2);
-                    let a = 1.0 - r / H;
-                    let d = DT2
-                        * ((pi.pv + pj.pv) * a * a * a * KERN_NORM + (pi.p + pj.p) * a * a * KERN)
-                        / 2.0;
+        let bounds = self.boundaries;
+        let particles = &mut self.particles;
+        let neighborhoods = &self.neighborhoods;
+        particles.iter_mut().enumerate().for_each(|(i, pi)| {
+            // project
+            let mut xproj = pi.x.clone();
+            // this shuold be 'for each neighbor'
+            for neighbor in &neighborhoods[i] {
+                let pj = particles_initial[neighbor.index];
+                let r = neighbor.r;
+                // if i == j {
+                //     continue;
+                // }
+                let dx = pj.x - pi.x;
+                let a = 1.0 - r / H;
+                let d = DT2
+                    * ((pi.pv + pj.pv) * a * a * a * KERN_NORM + (pi.p + pj.p) * a * a * KERN)
+                    / 2.0;
 
-                    // relaxation
-                    xproj -= d * dx / (r * pi.m);
+                // relaxation
+                xproj -= d * dx / (r * pi.m);
 
-                    // surface tension
-                    xproj += (SURFACE_TENSION / pi.m) * pj.m * a * a * KERN * dx;
+                // surface tension
+                xproj += (SURFACE_TENSION / pi.m) * pj.m * a * a * KERN * dx;
 
-                    // linear and quadratic visc
-                    let dv = pi.v - pj.v;
-                    let mut u = dv.dot(dx);
-                    if u > 0.0 {
-                        u /= r;
-                        let big_i = 0.5 * DT * a * (LINEAR_VISC * u + QUAD_VISC * u * u);
-                        xproj -= big_i * dx * DT;
-                    }
+                // linear and quadratic visc
+                let dv = pi.v - pj.v;
+                let mut u = dv.dot(dx);
+                if u > 0.0 {
+                    u /= r;
+                    let big_i = 0.5 * DT * a * (LINEAR_VISC * u + QUAD_VISC * u * u);
+                    xproj -= big_i * dx * DT;
                 }
+            }
 
-                // correct
-                pi.x = xproj;
-                pi.v = (xproj - pi.xlast) / DT;
+            // correct
+            pi.x = xproj;
+            pi.v = (xproj - pi.xlast) / DT;
 
-                // boundary
-                for b in &bounds {
-                    let d = f32::max(pi.x.x * b.x + pi.x.y * b.y - b.z, 0.0);
-                    if d < PARTICLE_RADIUS {
-                        pi.v += (PARTICLE_RADIUS - d) * Vec2::new(b.x, b.y) / DT;
-                    }
+            // boundary
+            for b in &bounds {
+                let d = f32::max(pi.x.x * b.x + pi.x.y * b.y - b.z, 0.0);
+                if d < PARTICLE_RADIUS {
+                    pi.v += (PARTICLE_RADIUS - d) * Vec2::new(b.x, b.y) / DT;
                 }
-            })
+            }
+        })
     }
 
     pub fn update(&mut self) {
