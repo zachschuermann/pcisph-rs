@@ -9,17 +9,7 @@ struct Vertex {
 implement_vertex!(Vertex, position);
 
 const DAM_PARTICLES: usize = 75 * 75;
-// const BLOCK_PARTICLES: usize = 250;
 const POINT_SIZE: f32 = 15.0;
-
-// fn main() {
-//     let mut simulation = pcisph_rs::State::new();
-//     simulation.init_dam_break(DAM_PARTICLES);
-// 
-//     for _ in 0..100 { 
-//         simulation.update();
-//     }
-// }
 
 fn main() {
     let mut simulation = pcisph_rs::State::new();

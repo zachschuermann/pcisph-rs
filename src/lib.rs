@@ -11,6 +11,35 @@ use glam::{vec2, vec3, UVec2, Vec2, Vec3};
 // use rayon::prelude::*;
 use std::f32::consts::PI;
 
+pub const G: Vec2 = glam::const_vec2!([0.0, -9.81]);
+pub const WINDOW_WIDTH: u32 = 1280;
+pub const WINDOW_HEIGHT: u32 = 800;
+pub const VIEW_WIDTH: f32 = 20.0;
+pub const VIEW_HEIGHT: f32 = WINDOW_HEIGHT as f32 * VIEW_WIDTH / WINDOW_WIDTH as f32;
+
+const SOLVER_STEPS: usize = 10;
+const REST_DENS: f32 = 45.0;
+const STIFFNESS: f32 = 0.08;
+const STIFF_APPROX: f32 = 0.1; // TODO: better naming
+const SURFACE_TENSION: f32 = 0.0001;
+const LINEAR_VISC: f32 = 0.25;
+const QUAD_VISC: f32 = 0.5;
+const PARTICLE_RADIUS: f32 = 0.03;
+const H: f32 = 6.0 * PARTICLE_RADIUS;
+const H2: f32 = H * H;
+const DT: f32 = (1.0 / 40.0) / SOLVER_STEPS as f32;
+const DT2: f32 = DT * DT;
+const KERN: f32 = 20.0 / (2.0 * PI * H * H);
+const KERN_NORM: f32 = 30.0 / (2.0 * PI * H * H);
+const EPS: f32 = 0.0000001;
+const EPS2: f32 = EPS * EPS;
+
+const CELL_SIZE: f32 = H; // set to smoothing radius
+const GRID_WIDTH: usize = (VIEW_WIDTH / CELL_SIZE) as usize;
+const GRID_HEIGHT: usize = (VIEW_HEIGHT / CELL_SIZE) as usize;
+const NUM_CELLS: usize = GRID_WIDTH * GRID_HEIGHT;
+const NUM_NEIGHBORS: usize = 64;
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Particle {
     x: Vec2,
@@ -45,35 +74,7 @@ impl Particle {
     }
 }
 
-const SOLVER_STEPS: usize = 10;
-const REST_DENS: f32 = 45.0;
-const STIFFNESS: f32 = 0.08;
-const STIFF_APPROX: f32 = 0.1; // TODO: better naming
-const SURFACE_TENSION: f32 = 0.0001;
-const LINEAR_VISC: f32 = 0.25;
-const QUAD_VISC: f32 = 0.5;
-const PARTICLE_RADIUS: f32 = 0.03;
-const H: f32 = 6.0 * PARTICLE_RADIUS;
-const H2: f32 = H * H;
-const DT: f32 = (1.0 / 40.0) / SOLVER_STEPS as f32;
-const DT2: f32 = DT * DT;
-const KERN: f32 = 20.0 / (2.0 * PI * H * H);
-const KERN_NORM: f32 = 30.0 / (2.0 * PI * H * H);
-const EPS: f32 = 0.0000001;
-const EPS2: f32 = EPS * EPS;
-pub const G: Vec2 = glam::const_vec2!([0.0, -9.81]);
-pub const WINDOW_WIDTH: u32 = 1280;
-pub const WINDOW_HEIGHT: u32 = 800;
-pub const VIEW_WIDTH: f32 = 20.0;
-pub const VIEW_HEIGHT: f32 = WINDOW_HEIGHT as f32 * VIEW_WIDTH / WINDOW_WIDTH as f32;
-
-const CELL_SIZE: f32 = H; // set to smoothing radius
-const GRID_WIDTH: usize = (VIEW_WIDTH / CELL_SIZE) as usize;
-const GRID_HEIGHT: usize = (VIEW_HEIGHT / CELL_SIZE) as usize;
-const NUM_CELLS: usize = GRID_WIDTH * GRID_HEIGHT;
-const NUM_NEIGHBORS: usize = 64;
-
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct State {
     pub particles: Vec<Particle>,
     boundaries: [Vec3; 4],
@@ -102,16 +103,12 @@ impl State {
             vec3(0.0, -1.0, -VIEW_HEIGHT), // top
         ];
 
-        let mut grid = Vec::with_capacity(NUM_CELLS);
-        for _ in 0..NUM_CELLS {
-            grid.push(Vec::new());
-        }
+        let grid = vec![vec![]; NUM_CELLS];
 
         Self {
-            particles: Vec::default(),
             boundaries,
             grid,
-            neighborhoods: Vec::default(),
+            ..Default::default()
         }
     }
 
@@ -156,7 +153,8 @@ impl State {
     }
 
     fn compute_forces(&mut self) {
-        let grid_initial = self.grid.clone(); // LVSTODO
+        let grid = &self.grid;
+        // TODO can we get around this clone
         let particles_initial = self.particles.clone();
         let particles = &mut self.particles;
         let neighborhoods = &mut self.neighborhoods;
@@ -166,12 +164,10 @@ impl State {
             let mut dens = 0.0;
             let mut dens_proj = 0.0;
             for gx in (pi.grid_index.x - 1)..=(pi.grid_index.x + 1) {
-                //let mut gy = GRID_WIDTH;
-                //while gy < pi.grid_index.y as usize + GRID_WIDTH {
                 let y_range =
                     (pi.grid_index.y - GRID_WIDTH as u32)..=(pi.grid_index.y + GRID_WIDTH as u32);
                 for gy in y_range.step_by(GRID_WIDTH) {
-                    for j in &grid_initial[(gx + gy) as usize] {
+                    for j in &grid[(gx + gy) as usize] {
                         let pj = particles_initial[*j];
                         let dx = pj.x - pi.x;
                         let r2 = dx.length_squared();
@@ -204,13 +200,9 @@ impl State {
         particles.iter_mut().enumerate().for_each(|(i, pi)| {
             // project
             let mut xproj = pi.x.clone();
-            // this shuold be 'for each neighbor'
             for neighbor in &neighborhoods[i] {
                 let pj = particles_initial[neighbor.index];
                 let r = neighbor.r;
-                // if i == j {
-                //     continue;
-                // }
                 let dx = pj.x - pi.x;
                 let a = 1.0 - r / H;
                 let d = DT2
