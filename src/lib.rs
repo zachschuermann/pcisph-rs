@@ -126,7 +126,6 @@ impl State {
         );
     }
 
-    #[allow(dead_code)]
     pub fn init_block(&mut self, _block_max_particles: usize) {
         warn!("Unimplemented")
     }
