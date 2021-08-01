@@ -1,4 +1,3 @@
-extern crate glium;
 use glium::{glutin, implement_vertex, uniform, Surface};
 use glutin::event::{ElementState, Event, KeyboardInput, StartCause, VirtualKeyCode, WindowEvent};
 use pcisph_rs;
@@ -10,7 +9,7 @@ struct Vertex {
 implement_vertex!(Vertex, position);
 
 const DAM_PARTICLES: usize = 75 * 75;
-const BLOCK_PARTICLES: usize = 250;
+// const BLOCK_PARTICLES: usize = 250;
 const POINT_SIZE: f32 = 15.0;
 
 fn main() {
@@ -105,7 +104,7 @@ fn main() {
             .particles
             .iter()
             .map(|p| Vertex {
-                position: p.x.to_array(),
+                position: p.position().to_array(),
             })
             .collect();
         let vertex_buffer = glium::VertexBuffer::new(&display, &data).unwrap();

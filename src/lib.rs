@@ -1,19 +1,27 @@
-extern crate glam;
+#![warn(
+    unreachable_pub,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_extern_crates,
+    rust_2018_idioms,
+    missing_debug_implementations
+)]
+
 use glam::{vec2, vec3, UVec2, Vec2, Vec3};
-use rayon::prelude::*;
+// use rayon::prelude::*;
 use std::f32::consts::PI;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Particle {
-    pub x: Vec2,
-    pub xlast: Vec2,
-    pub v: Vec2,
-    pub m: f32,
-    pub p: f32,
-    pub pv: f32,
-    pub d: f32,
-    pub dv: f32,
-    pub grid_index: UVec2,
+    x: Vec2,
+    xlast: Vec2,
+    v: Vec2,
+    m: f32,
+    p: f32,
+    pv: f32,
+    d: f32,
+    dv: f32,
+    grid_index: UVec2,
 }
 
 impl Particle {
@@ -30,6 +38,10 @@ impl Particle {
             m: 1.0,
             ..Default::default()
         }
+    }
+
+    pub fn position(&self) -> Vec2 {
+        self.x
     }
 }
 
@@ -60,6 +72,7 @@ const GRID_WIDTH: usize = (VIEW_WIDTH / CELL_SIZE) as usize;
 const GRID_HEIGHT: usize = (VIEW_HEIGHT / CELL_SIZE) as usize;
 const NUM_CELLS: usize = GRID_WIDTH * GRID_HEIGHT;
 
+#[derive(Debug)]
 pub struct State {
     pub particles: Vec<Particle>,
     boundaries: [Vec3; 4],
@@ -107,7 +120,7 @@ impl State {
     }
 
     fn integrate(&mut self) {
-        self.particles.par_iter_mut().for_each(|p| {
+        self.particles.iter_mut().for_each(|p| {
             p.v += G * DT;
             p.xlast = p.x;
             p.x += DT * p.v;
@@ -130,7 +143,7 @@ impl State {
         let grid_initial = self.grid.clone(); // LVSTODO
         let particles_initial = self.particles.clone();
         self.particles
-            .par_iter_mut()
+            .iter_mut()
             .enumerate()
             .for_each(|(i, pi)| {
                 let mut dens = 0.0;
@@ -167,7 +180,7 @@ impl State {
         let particles_initial = self.particles.clone();
         let bounds = self.boundaries.clone();
         self.particles
-            .par_iter_mut()
+            .iter_mut()
             .enumerate()
             .for_each(|(i, pi)| {
                 // project
@@ -198,8 +211,8 @@ impl State {
                     let mut u = dv.dot(dx);
                     if u > 0.0 {
                         u /= r;
-                        let I = 0.5 * DT * a * (LINEAR_VISC * u + QUAD_VISC * u * u);
-                        xproj -= I * dx * DT;
+                        let big_i = 0.5 * DT * a * (LINEAR_VISC * u + QUAD_VISC * u * u);
+                        xproj -= big_i * dx * DT;
                     }
                 }
 
