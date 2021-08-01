@@ -8,6 +8,7 @@
 )]
 
 use glam::{vec2, vec3, UVec2, Vec2, Vec3};
+use log::{info, warn};
 // use rayon::prelude::*;
 use std::f32::consts::PI;
 
@@ -54,14 +55,7 @@ pub struct Particle {
 }
 
 impl Particle {
-    pub fn new() -> Self {
-        Self {
-            m: 1.0,
-            ..Default::default()
-        }
-    }
-
-    pub fn new_with_pos(x: f32, y: f32) -> Self {
+    pub fn new(x: f32, y: f32) -> Self {
         Self {
             x: Vec2::new(x, y),
             m: 1.0,
@@ -69,6 +63,7 @@ impl Particle {
         }
     }
 
+    #[inline(always)]
     pub fn position(&self) -> Vec2 {
         self.x
     }
@@ -118,18 +113,22 @@ impl State {
         let num = f32::sqrt(dam_max_particles as f32) as usize;
         for _ in 0..num {
             for _ in 0..num {
-                self.particles
-                    .push(Particle::new_with_pos(start.x, start.y));
+                self.particles.push(Particle::new(start.x, start.y));
                 self.neighborhoods.push(vec![]);
                 start.x += 2.0 * PARTICLE_RADIUS + PARTICLE_RADIUS;
             }
             start.x = x0;
             start.y -= 2.0 * PARTICLE_RADIUS + PARTICLE_RADIUS;
         }
-        println!(
+        info!(
             "Initialized dam break with {} particles",
             self.particles.len()
         );
+    }
+
+    #[allow(dead_code)]
+    pub fn init_block(&mut self, _block_max_particles: usize) {
+        warn!("Unimplemented")
     }
 
     fn integrate(&mut self) {
