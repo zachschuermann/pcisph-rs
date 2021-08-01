@@ -9,7 +9,8 @@
 
 use glam::{vec2, vec3, UVec2, Vec2, Vec3};
 use log::{info, warn};
-// use rayon::prelude::*;
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
 use std::f32::consts::PI;
 
 pub const G: Vec2 = glam::const_vec2!([0.0, -9.81]);
@@ -131,8 +132,39 @@ impl State {
         warn!("Unimplemented")
     }
 
+    // #[cfg(feature = "rayon")]
+    // fn par_iter_mut<T, I>(v: T) -> T::Iter
+    // where
+    //     T: rayon::iter::IntoParallelRefMutIterator<'a>,
+    //     I: IntoIterator,
+    // {
+    //     {
+    //         v.par_iter_mut()
+    //     }
+    // }
+    // #[cfg(not(feature = "rayon"))]
+    fn par_iter_mut<T, I>(v: T) -> Iterator
+    where
+        T: IntoIterator,
+        I: IntoIterator,
+    {
+        {
+            <&mut T>::into_iter(v)
+        }
+    }
+
     fn integrate(&mut self) {
-        self.particles.iter_mut().for_each(|p| {
+        let p = {
+            #[cfg(feature = "rayon")]
+            {
+                self.particles.par_iter_mut()
+            }
+            #[cfg(not(feature = "rayon"))]
+            {
+                self.particles.iter_mut()
+            }
+        };
+        p.for_each(|p| {
             p.v += G * DT;
             p.xlast = p.x;
             p.x += DT * p.v;
