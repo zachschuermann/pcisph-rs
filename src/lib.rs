@@ -77,6 +77,13 @@ pub struct State {
     pub particles: Vec<Particle>,
     boundaries: [Vec3; 4],
     grid: Vec<Vec<usize>>,
+    neighborhoods: Vec<Vec<Neighbor>>,
+}
+
+#[derive(Debug)]
+struct Neighbor {
+    particle: Particle,
+    r: f32
 }
 
 impl State {
@@ -97,6 +104,7 @@ impl State {
             particles: Vec::default(),
             boundaries,
             grid,
+            neighborhoods: Vec::default(),
         }
     }
 
@@ -165,6 +173,9 @@ impl State {
                             let a = 1.0 - r / H;
                             dens += pj.m * a * a * a * KERN;
                             dens_proj += pj.m * a * a * a * a * KERN_NORM;
+						    // self.neighborhoods[i].particles[nh[i].numNeighbors] = &pj;
+						    // nh[i].r[nh[i].numNeighbors] = r;
+						    // ++nh[i].numNeighbors;
                         }
                         gy += GRID_WIDTH;
                     }
@@ -185,6 +196,7 @@ impl State {
             .for_each(|(i, pi)| {
                 // project
                 let mut xproj = pi.x.clone();
+                // this shuold be 'for each neighbor'
                 for (j, pj) in particles_initial.iter().enumerate() {
                     if i == j {
                         continue;

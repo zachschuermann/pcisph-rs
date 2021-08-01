@@ -16,6 +16,15 @@ fn main() {
     let mut simulation = pcisph_rs::State::new();
     simulation.init_dam_break(DAM_PARTICLES);
 
+    for _ in 0..100 { 
+        simulation.update();
+    }
+}
+
+fn main2() {
+    let mut simulation = pcisph_rs::State::new();
+    simulation.init_dam_break(DAM_PARTICLES);
+
     let event_loop = glutin::event_loop::EventLoop::new();
     let size: glutin::dpi::LogicalSize<u32> =
         (pcisph_rs::WINDOW_WIDTH, pcisph_rs::WINDOW_HEIGHT).into();
