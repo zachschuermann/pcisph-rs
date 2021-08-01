@@ -197,7 +197,7 @@ impl State {
         let neighborhoods = &self.neighborhoods;
         particles.iter_mut().enumerate().for_each(|(i, pi)| {
             // project
-            let mut xproj = pi.x.clone();
+            let mut xproj = pi.x;
             for neighbor in &neighborhoods[i] {
                 let pj = particles_initial[neighbor.index];
                 let r = neighbor.r;
