@@ -8,9 +8,9 @@ struct Vertex {
 }
 implement_vertex!(Vertex, position);
 
-const DAM_PARTICLES: usize = 3000;
+const DAM_PARTICLES: usize = 75 * 75;
 const BLOCK_PARTICLES: usize = 250;
-const POINT_SIZE: f32 = 15.0;
+const POINT_SIZE: f32 = 10.0;
 
 fn main() -> Result<(), String> {
     env_logger::init();
@@ -24,7 +24,7 @@ fn main() -> Result<(), String> {
     let wb = glutin::window::WindowBuilder::new()
         .with_inner_size(size)
         .with_resizable(false)
-        .with_title("Müller SPH");
+        .with_title("PCISPH");
     let cb = glutin::ContextBuilder::new();
     let display = glium::Display::new(wb, cb, &event_loop)
         .map_err(|e| format!("Failed to create glium display: {}", e))?;
