@@ -9,7 +9,7 @@ struct Vertex {
 implement_vertex!(Vertex, position);
 
 const DAM_PARTICLES: usize = 75 * 75;
-const BLOCK_PARTICLES: usize = 250;
+const BLOCK_PARTICLES: usize = 500;
 const POINT_SIZE: f32 = 10.0;
 
 fn main() -> Result<(), String> {

@@ -21,7 +21,7 @@ pub const VIEW_HEIGHT: f32 = WINDOW_HEIGHT as f32 * VIEW_WIDTH / WINDOW_WIDTH as
 const SOLVER_STEPS: usize = 10;
 const REST_DENS: f32 = 45.0;
 const STIFFNESS: f32 = 0.08;
-const STIFF_APPROX: f32 = 0.1; // TODO: better naming
+const STIFF_APPROX: f32 = 0.1;
 const SURFACE_TENSION: f32 = 0.0001;
 const LINEAR_VISC: f32 = 0.25;
 const QUAD_VISC: f32 = 0.5;
@@ -97,9 +97,7 @@ impl State {
             vec3(-1.0, 0.0, -VIEW_WIDTH),  // right
             vec3(0.0, -1.0, -VIEW_HEIGHT), // top
         ];
-
         let grid = vec![vec![]; NUM_CELLS];
-
         Self {
             boundaries,
             grid,
@@ -107,10 +105,9 @@ impl State {
         }
     }
 
-    pub fn init_dam_break(&mut self, dam_max_particles: usize) {
-        let mut start = vec2(0.25 * VIEW_WIDTH, 0.95 * VIEW_HEIGHT);
+    fn place_square(&mut self, start: &mut Vec2, max_particles: usize) -> usize {
         let x0 = start.x;
-        let num = f32::sqrt(dam_max_particles as f32) as usize;
+        let num = f32::sqrt(max_particles as f32) as usize;
         for _ in 0..num {
             for _ in 0..num {
                 self.particles.push(Particle::new(start.x, start.y));
@@ -120,14 +117,29 @@ impl State {
             start.x = x0;
             start.y -= 2.0 * PARTICLE_RADIUS + PARTICLE_RADIUS;
         }
+        num * num
+    }
+
+    pub fn init_dam_break(&mut self, dam_max_particles: usize) {
+        let mut start = vec2(0.25 * VIEW_WIDTH, 0.95 * VIEW_HEIGHT);
+        self.place_square(&mut start, dam_max_particles);
         info!(
             "Initialized dam break with {} particles",
             self.particles.len()
         );
     }
 
-    pub fn init_block(&mut self, _block_max_particles: usize) {
-        warn!("Unimplemented")
+    pub fn init_block(&mut self, block_max_particles: usize) {
+        let mut start = vec2(
+            VIEW_WIDTH / 2.0 - VIEW_HEIGHT / 10.0,
+            VIEW_HEIGHT - VIEW_HEIGHT / 10.0,
+        );
+        let num_placed = self.place_square(&mut start, block_max_particles);
+        info!(
+            "Initialized block of {} particles, new total {}",
+            num_placed,
+            self.particles.len()
+        );
     }
 
     fn integrate_insert(&mut self) {
