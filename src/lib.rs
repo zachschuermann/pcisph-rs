@@ -178,7 +178,7 @@ impl State {
                             let pj = particles_initial[*j];
                             let dx = pj.x - pi.x;
                             let r2 = dx.length_squared();
-                            if r2 < EPS2 || r2 > H2 {
+                            if !(EPS2..=H2).contains(&r2) {
                                 continue;
                             }
                             let r = f32::sqrt(r2);
