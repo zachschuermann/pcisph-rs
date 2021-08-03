@@ -130,33 +130,28 @@ impl State {
         warn!("Unimplemented")
     }
 
-    fn integrate(&mut self) {
-        self.particles.iter_mut().for_each(|p| {
+    fn integrate_insert(&mut self) {
+        let grid = &mut self.grid;
+        grid.iter_mut().for_each(|g| g.clear());
+        self.particles.iter_mut().enumerate().for_each(|(i, p)| {
             p.v += G * DT;
             p.xlast = p.x;
             p.x += DT * p.v;
-        });
-    }
 
-    fn grid_insert(&mut self) {
-        self.grid.iter_mut().for_each(|g| g.clear());
-        for (i, p) in self.particles.iter_mut().enumerate() {
             let xind = (p.x.x / CELL_SIZE).floor() as usize;
             let yind = (p.x.y / CELL_SIZE).floor() as usize;
             let xind = usize::max(1, usize::min(GRID_WIDTH - 2, xind));
             let yind = usize::max(1, usize::min(GRID_HEIGHT - 2, yind));
-            self.grid[xind + yind * GRID_WIDTH].push(i);
+            grid[xind + yind * GRID_WIDTH].push(i);
             p.grid_index = UVec2::new(xind as u32, (yind * GRID_WIDTH) as u32);
-        }
+        });
     }
 
     fn compute_forces(&mut self) {
-        let grid = &self.grid;
         // TODO can we get around this clone
         let particles_initial = self.particles.clone();
-        let particles = &mut self.particles;
-
-        particles
+        let grid = &self.grid;
+        self.particles
             .par_iter_mut()
             .zip(self.neighborhoods.par_iter_mut())
             .for_each(|(pi, ni)| {
@@ -193,56 +188,57 @@ impl State {
     }
 
     fn project_correct(&mut self) {
+        // TODO can we get around this clone
         let particles_initial = self.particles.clone();
         let bounds = self.boundaries;
-        let particles = &mut self.particles;
-        let neighborhoods = &self.neighborhoods;
-        particles.iter_mut().enumerate().for_each(|(i, pi)| {
-            // project
-            let mut xproj = pi.x;
-            for neighbor in &neighborhoods[i] {
-                let pj = particles_initial[neighbor.index];
-                let r = neighbor.r;
-                let dx = pj.x - pi.x;
-                let a = 1.0 - r / H;
-                let d = DT2
-                    * ((pi.pv + pj.pv) * a * a * a * KERN_NORM + (pi.p + pj.p) * a * a * KERN)
-                    / 2.0;
+        self.particles
+            .par_iter_mut()
+            .zip(self.neighborhoods.par_iter_mut())
+            .for_each(|(pi, ni)| {
+                // project
+                let mut xproj = pi.x;
+                for neighbor in ni {
+                    let pj = particles_initial[neighbor.index];
+                    let r = neighbor.r;
+                    let dx = pj.x - pi.x;
+                    let a = 1.0 - r / H;
+                    let d = DT2
+                        * ((pi.pv + pj.pv) * a * a * a * KERN_NORM + (pi.p + pj.p) * a * a * KERN)
+                        / 2.0;
 
-                // relaxation
-                xproj -= d * dx / (r * pi.m);
+                    // relaxation
+                    xproj -= d * dx / (r * pi.m);
 
-                // surface tension
-                xproj += (SURFACE_TENSION / pi.m) * pj.m * a * a * KERN * dx;
+                    // surface tension
+                    xproj += (SURFACE_TENSION / pi.m) * pj.m * a * a * KERN * dx;
 
-                // linear and quadratic visc
-                let dv = pi.v - pj.v;
-                let mut u = dv.dot(dx);
-                if u > 0.0 {
-                    u /= r;
-                    let big_i = 0.5 * DT * a * (LINEAR_VISC * u + QUAD_VISC * u * u);
-                    xproj -= big_i * dx * DT;
+                    // linear and quadratic visc
+                    let dv = pi.v - pj.v;
+                    let mut u = dv.dot(dx);
+                    if u > 0.0 {
+                        u /= r;
+                        let big_i = 0.5 * DT * a * (LINEAR_VISC * u + QUAD_VISC * u * u);
+                        xproj -= big_i * dx * DT;
+                    }
                 }
-            }
 
-            // correct
-            pi.x = xproj;
-            pi.v = (xproj - pi.xlast) / DT;
+                // correct
+                pi.x = xproj;
+                pi.v = (xproj - pi.xlast) / DT;
 
-            // boundary
-            for b in &bounds {
-                let d = f32::max(pi.x.x * b.x + pi.x.y * b.y - b.z, 0.0);
-                if d < PARTICLE_RADIUS {
-                    pi.v += (PARTICLE_RADIUS - d) * Vec2::new(b.x, b.y) / DT;
+                // boundary
+                for b in &bounds {
+                    let d = f32::max(pi.x.x * b.x + pi.x.y * b.y - b.z, 0.0);
+                    if d < PARTICLE_RADIUS {
+                        pi.v += (PARTICLE_RADIUS - d) * Vec2::new(b.x, b.y) / DT;
+                    }
                 }
-            }
-        })
+            })
     }
 
     pub fn update(&mut self) {
         for _ in 0..SOLVER_STEPS {
-            self.integrate();
-            self.grid_insert();
+            self.integrate_insert();
             self.compute_forces();
             self.project_correct();
         }
