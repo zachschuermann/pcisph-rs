@@ -9,7 +9,7 @@
 
 use glam::{vec2, vec3, UVec2, Vec2, Vec3};
 use log::{info, warn};
-// use rayon::prelude::*;
+use rayon::prelude::*;
 use std::f32::consts::PI;
 
 pub const G: Vec2 = glam::const_vec2!([0.0, -9.81]);
@@ -155,39 +155,41 @@ impl State {
         // TODO can we get around this clone
         let particles_initial = self.particles.clone();
         let particles = &mut self.particles;
-        let neighborhoods = &mut self.neighborhoods;
 
-        particles.iter_mut().enumerate().for_each(|(i, pi)| {
-            neighborhoods[i].clear();
-            let mut dens = 0.0;
-            let mut dens_proj = 0.0;
-            for gx in (pi.grid_index.x - 1)..=(pi.grid_index.x + 1) {
-                let y_range =
-                    (pi.grid_index.y - GRID_WIDTH as u32)..=(pi.grid_index.y + GRID_WIDTH as u32);
-                for gy in y_range.step_by(GRID_WIDTH) {
-                    for j in &grid[(gx + gy) as usize] {
-                        let pj = particles_initial[*j];
-                        let dx = pj.x - pi.x;
-                        let r2 = dx.length_squared();
-                        if r2 < EPS2 || r2 > H2 {
-                            continue;
-                        }
-                        let r = f32::sqrt(r2);
-                        let a = 1.0 - r / H;
-                        dens += pj.m * a * a * a * KERN;
-                        dens_proj += pj.m * a * a * a * a * KERN_NORM;
-                        if neighborhoods[i].len() < NUM_NEIGHBORS {
-                            let neighbor = Neighbor::new(*j, r);
-                            neighborhoods[i].push(neighbor);
+        particles
+            .par_iter_mut()
+            .zip(self.neighborhoods.par_iter_mut())
+            .for_each(|(pi, ni)| {
+                ni.clear();
+                let mut dens = 0.0;
+                let mut dens_proj = 0.0;
+                for gx in (pi.grid_index.x - 1)..=(pi.grid_index.x + 1) {
+                    let y_range = (pi.grid_index.y - GRID_WIDTH as u32)
+                        ..=(pi.grid_index.y + GRID_WIDTH as u32);
+                    for gy in y_range.step_by(GRID_WIDTH) {
+                        for j in &grid[(gx + gy) as usize] {
+                            let pj = particles_initial[*j];
+                            let dx = pj.x - pi.x;
+                            let r2 = dx.length_squared();
+                            if r2 < EPS2 || r2 > H2 {
+                                continue;
+                            }
+                            let r = f32::sqrt(r2);
+                            let a = 1.0 - r / H;
+                            dens += pj.m * a * a * a * KERN;
+                            dens_proj += pj.m * a * a * a * a * KERN_NORM;
+                            if ni.len() < NUM_NEIGHBORS {
+                                let neighbor = Neighbor::new(*j, r);
+                                ni.push(neighbor);
+                            }
                         }
                     }
                 }
-            }
-            pi.d = dens;
-            pi.dv = dens_proj;
-            pi.p = STIFFNESS * (dens - pi.m * REST_DENS);
-            pi.pv = STIFF_APPROX * dens_proj;
-        })
+                pi.d = dens;
+                pi.dv = dens_proj;
+                pi.p = STIFFNESS * (dens - pi.m * REST_DENS);
+                pi.pv = STIFF_APPROX * dens_proj;
+            })
     }
 
     fn project_correct(&mut self) {
